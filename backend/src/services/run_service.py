@@ -2,6 +2,7 @@ import csv,io
 from redis import Redis
 from fastapi import HTTPException
 from ..models import DeviationRun,ReviewNote
+from ..models.deviation_run import SINGLE_WINDOW
 from ..config.settings import REDIS_URL
 from ..utils.serialize import record
 from .study_service import get_study,create_snapshot
@@ -24,6 +25,18 @@ def create_run(db,data,user):
 def export_run(db,rid):
     row=get_run(db,rid)
     if row.status!='completed' or not db.query(ReviewNote).filter_by(run_id=rid,status='approved').first():raise HTTPException(403,'仅获批完成研究可导出')
-    o=io.StringIO();w=csv.writer(o);features=row.result['features'];w.writerow(['window','split',*[f['code'] for f in features],'D_squared','cal_ge_count','upper_tail_p','preset_alpha','selected','cal_m','seed','fit_hash','input_hash'])
-    for x in row.result['test']:v=x['window'];w.writerow([v['code'],v['split'],*[v['values'][f['code']] for f in features],x['d2'],x['cal_ge_count'],x['p'],row.alpha,x['selected'],row.result['counts']['cal'],row.seed,row.result['fit_hash'],row.result['input_hash']])
+    result=row.result or {}
+    # 旧档回读：升级前v1结果没有error_control/p_adj字段，按原单窗规则导出且不改变既有列含义；
+    # 升级后新建（含单窗模式）的运行一律导出含原始p/校正p/入选理由的完整新格式
+    legacy=result.get('algorithm_version','').endswith('-v1') or 'error_control' not in result
+    mode=result.get('error_control',SINGLE_WINDOW)
+    o=io.StringIO();w=csv.writer(o);features=result.get('features',[])
+    if legacy:
+        w.writerow(['window','split',*[f['code'] for f in features],'D_squared','cal_ge_count','upper_tail_p','preset_alpha','selected','cal_m','seed','fit_hash','input_hash'])
+        for x in result.get('test',[]):v=x['window'];w.writerow([v['code'],v['split'],*[v['values'][f['code']] for f in features],x['d2'],x['cal_ge_count'],x['p'],row.alpha,x['selected'],result['counts']['cal'],row.seed,result['fit_hash'],result['input_hash']])
+        return o.getvalue()
+    w.writerow(['window','split',*[f['code'] for f in features],'D_squared','cal_ge_count','upper_tail_p','holm_adjusted_p','holm_rank','holm_multiplier','error_control','preset_alpha','selected','selection_reason','cal_m','seed','fit_hash','input_hash'])
+    for x in result['test']:
+        v=x['window']
+        w.writerow([v['code'],v['split'],*[v['values'][f['code']] for f in features],x['d2'],x['cal_ge_count'],x['p'],x['p_adj'],x['holm_rank'],x['holm_multiplier'],mode,row.alpha,x['selected'],x['selection_reason'],result['counts']['cal'],row.seed,result['fit_hash'],result['input_hash']])
     return o.getvalue()

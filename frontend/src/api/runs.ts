@@ -1,1 +1,1 @@
-import {request} from './client';import {Run} from '../types/domain';export const getRuns=()=>request<Run[]>('/runs');export const createRun=(data:{name:string;study_id:number;alpha:number;seed:number})=>request<Run>('/runs',{method:'POST',body:JSON.stringify(data)});
+import {request} from './client';import {Run,ErrorControl} from '../types/domain';export const getRuns=()=>request<Run[]>('/runs');export const createRun=(data:{name:string;study_id:number;alpha:number;seed:number;error_control:ErrorControl})=>request<Run>('/runs',{method:'POST',body:JSON.stringify(data)});
